@@ -28,7 +28,7 @@ SETTINGS_DEFAULTS = {
     "settle_us": 10,
     "blank_us": 0,
     "short_delay_us": 3,
-    "short_hold_us": 50,
+    "short_hold_us": 34,
 }
 DIAGNOSTIC_LABELS = ["All open", "TX1 only", "RX2 only", "TX1 + RX2"]
 NOISE_REFERENCE_PATHS = [
@@ -86,6 +86,9 @@ def validated_settings() -> dict[str, int]:
         if not low <= value <= high:
             raise ValueError(f"{key} must be between {low} and {high}")
         settings[key] = value
+    # Keep the TX short active for approximately one ADC window. This tracks
+    # sample count changes instead of leaving the old 50 us value hard-coded.
+    settings["short_hold_us"] = math.ceil(settings["samples"] / SAMPLE_RATE_MHZ)
     scan_mode = request.args.get("scan_mode", "four_common")
     if scan_mode == "normal":
         scan_mode = "four"
@@ -559,7 +562,7 @@ canvas { display: block; width: 100%; height: 100%; }
     </div>
     <input id="samples" type="hidden" value="2000">
     <input id="blank_us" type="hidden" value="0">
-    <input id="short_hold_us" type="hidden" value="50">
+    <input id="short_hold_us" type="hidden" value="34">
     <input id="display_filter" type="hidden" value="raw">
     <input id="start_us" type="hidden" value="0">
     <input id="end_us" type="hidden" value="50">
@@ -642,7 +645,7 @@ function loadSettings(){
     saved.scan_mode = "four_common";
     saved.samples = "2000";
     saved.blank_us = "0";
-    saved.short_hold_us = "50";
+    saved.short_hold_us = String(Math.ceil(Number(saved.samples || "2000") / SAMPLE_RATE_MHZ));
     saved.display_filter = "raw";
     saved.start_us = "0";
     saved.end_us = "50";
@@ -671,7 +674,7 @@ function params(){
   el("scan_mode").value = "four_common";
   el("samples").value = "2000";
   el("blank_us").value = "0";
-  el("short_hold_us").value = "50";
+  el("short_hold_us").value = String(Math.ceil(number("samples") / SAMPLE_RATE_MHZ));
   for(const id of ["scan_mode","dac","pon","poff","damp","samples","settle_us","blank_us","short_delay_us","short_hold_us"]) value.set(id, el(id).value);
   return value;
 }

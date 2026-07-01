@@ -37,6 +37,12 @@ static uint8_t binary_tx[7 + 2 + SAMPLE_COUNT * 2];
 
 #define ARRAY_MODE_PAIRWISE 0
 #define ARRAY_MIN_SETTLE_US 5
+#define ARRAY_SAMPLE_RATE_MHZ 60u
+
+static uint32_t sample_window_us_ceil(uint16_t count)
+{
+    return (count + ARRAY_SAMPLE_RATE_MHZ - 1u) / ARRAY_SAMPLE_RATE_MHZ;
+}
 
 static uint16_t mux_rx_bit(uint8_t channel)
 {
@@ -732,7 +738,8 @@ static void adc_mux_pairwise_short_stream(
     uint32_t settle_us = 8;
     uint32_t blank_us = 7;
     uint32_t short_delay_us = 3;
-    uint32_t short_hold_us = 20;
+    uint32_t short_hold_us = 0;
+    bool short_hold_given = false;
     uint32_t sequence = 0;
     char data_copy[strlen(data) + 1];
     strcpy(data_copy, data);
@@ -753,7 +760,8 @@ static void adc_mux_pairwise_short_stream(
     if (token != NULL) { settle_us = (uint32_t)atoi(token); token = strtok(NULL, " "); }
     if (token != NULL) { blank_us = (uint32_t)atoi(token); token = strtok(NULL, " "); }
     if (token != NULL) { short_delay_us = (uint32_t)atoi(token); token = strtok(NULL, " "); }
-    if (token != NULL) { short_hold_us = (uint32_t)atoi(token); }
+    if (token != NULL) { short_hold_us = (uint32_t)atoi(token); short_hold_given = true; }
+    if (!short_hold_given) { short_hold_us = sample_window_us_ceil(count); }
 
     if (settle_us < ARRAY_MIN_SETTLE_US)
     {
@@ -836,7 +844,8 @@ static void adc_mux_pairwise_mux_blank_short_stream(
     uint32_t settle_us = 8;
     uint32_t mux_blank_us = 7;
     uint32_t short_delay_us = 3;
-    uint32_t short_hold_us = 50;
+    uint32_t short_hold_us = 0;
+    bool short_hold_given = false;
     uint32_t sequence = 0;
     char data_copy[strlen(data) + 1];
     strcpy(data_copy, data);
@@ -857,7 +866,8 @@ static void adc_mux_pairwise_mux_blank_short_stream(
     if (token != NULL) { settle_us = (uint32_t)atoi(token); token = strtok(NULL, " "); }
     if (token != NULL) { mux_blank_us = (uint32_t)atoi(token); token = strtok(NULL, " "); }
     if (token != NULL) { short_delay_us = (uint32_t)atoi(token); token = strtok(NULL, " "); }
-    if (token != NULL) { short_hold_us = (uint32_t)atoi(token); }
+    if (token != NULL) { short_hold_us = (uint32_t)atoi(token); short_hold_given = true; }
+    if (!short_hold_given) { short_hold_us = sample_window_us_ceil(count); }
 
     if (settle_us < ARRAY_MIN_SETTLE_US)
     {

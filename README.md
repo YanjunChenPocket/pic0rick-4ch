@@ -87,6 +87,7 @@ The purpose of the `TR5` short is to reduce TX ringdown/feedthrough after the pu
 | samples/path | `2000` | Fixed in the UI |
 | MUX settle us | `10` | Delay after selecting the TX/RX path |
 | TX short delay us | `3` | PIO-timed delay before latching the short mask |
+| TX short hold us | `34` | Computed from the 2000-sample ADC window |
 
 At 60 MHz sampling:
 
@@ -107,7 +108,7 @@ four common <samples> <pon_ns> <poff_ns> <damp_ns> <mux_settle_us> <rx_blank_us>
 With the default UI settings, it is:
 
 ```text
-four common 2000 167 167 10000 10 0 3 50
+four common 2000 167 167 10000 10 0 3 34
 ```
 
 The DAC is sent separately first:
@@ -234,7 +235,7 @@ For the current 12-path scan:
        "settle_us": 10,
        "blank_us": 0,
        "short_delay_us": 3,
-       "short_hold_us": 50,
+       "short_hold_us": 34,
    }
    ```
 
