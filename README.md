@@ -1,49 +1,36 @@
-# pic0rick 4-channel TX-short scan
+<div align="center">
 
-This is a clean release folder for the current pic0rick 4-channel MAX14866 MUX experiment.
+# pic0rick-4ch
 
-It is for the original Raspberry Pi Pico / RP2040 board. The ready-to-flash firmware is:
+**RP2040 4-channel MAX14866 ultrasound MUX scanner with timed TX short-to-GND**
 
-`firmware/tx_short_extra_gnd_rp2040.uf2`
+<p>
+  <img alt="Board" src="https://img.shields.io/badge/Board-RP2040-7c3aed">
+  <img alt="MUX" src="https://img.shields.io/badge/MUX-MAX14866-0f766e">
+  <img alt="Paths" src="https://img.shields.io/badge/Scan-12%20directed%20paths-2563eb">
+  <img alt="Data" src="https://img.shields.io/badge/Data-10--bit%20packed-f59e0b">
+  <img alt="UI" src="https://img.shields.io/badge/UI-Flask%20live%20viewer-0891b2">
+</p>
 
-## What This Runs
+</div>
 
-The live scan uses four piezo channels and measures all directed TX/RX pairs:
+This is a clean release folder for the current **pic0rick 4-channel MUX experiment**.
+It targets the original Raspberry Pi Pico / **RP2040** board.
 
-`TX1 -> RX2/RX3/RX4`  
-`TX2 -> RX1/RX3/RX4`  
-`TX3 -> RX1/RX2/RX4`  
-`TX4 -> RX1/RX2/RX3`
+Ready-to-flash firmware:
 
-Then it repeats continuously.
+```text
+firmware/tx_short_extra_gnd_rp2040.uf2
+```
 
-The current hardware setup uses:
+## Quick Start
 
-- `TR1-TR4`: piezo channels.
-- `TR5`: common short-to-GND path used after each transmit pulse.
-- `TR6-TR8`: unused in this release.
-
-The intent is to reduce TX ringdown/feedthrough by briefly connecting the TX side to ground after the pulse.
-
-## Folder Contents
-
-- `serve_array_tx_short.py`: live Flask browser interface.
-- `host/run_array_test.py`: serial frame reader and helper code.
-- `firmware/`: RP2040 firmware source.
-- `firmware/tx_short_extra_gnd_rp2040.uf2`: compiled firmware for the original Pico / RP2040.
-- `requirements.txt`: Python dependencies.
-
-## Flash The Pico
-
-Use the RP2040 UF2:
-
-`firmware/tx_short_extra_gnd_rp2040.uf2`
-
-Put the Pico into BOOTSEL mode, then copy this UF2 file to the mounted Pico drive.
-
-## Run The Web Interface
-
-From this folder:
+| Step | What to do |
+| --- | --- |
+| 1 | Flash `firmware/tx_short_extra_gnd_rp2040.uf2` to the Pico in BOOTSEL mode. |
+| 2 | Install Python dependencies from this folder. |
+| 3 | Start the live browser interface. |
+| 4 | Open `http://127.0.0.1:5176/`. |
 
 ```bash
 python3 -m venv .venv
@@ -52,33 +39,198 @@ pip install -r requirements.txt
 python serve_array_tx_short.py
 ```
 
-Open:
+## What It Runs
 
-```text
-http://127.0.0.1:5176/
+The firmware scans all directed TX/RX pairs across four piezo channels:
+
+| TX channel | RX channels |
+| --- | --- |
+| `TX1` | `RX2`, `RX3`, `RX4` |
+| `TX2` | `RX1`, `RX3`, `RX4` |
+| `TX3` | `RX1`, `RX2`, `RX4` |
+| `TX4` | `RX1`, `RX2`, `RX3` |
+
+Then it repeats continuously.
+
+Current hardware mapping:
+
+| MUX node | Use |
+| --- | --- |
+| `TR1-TR4` | Piezo channels |
+| `TR5` | Common short-to-GND path after each transmit pulse |
+| `TR6-TR8` | Unused in this release |
+
+The purpose of the `TR5` short is to reduce TX ringdown/feedthrough after the pulse while keeping the scan sequence fast.
+
+## System Flow
+
+```mermaid
+flowchart LR
+    UI["Browser UI<br/>serve_array_tx_short.py"] --> Flask["Flask server"]
+    Flask --> Serial["USB serial command<br/>921600 baud"]
+    Serial --> Pico["RP2040 firmware"]
+    Pico --> MUX["MAX14866 MUX"]
+    MUX --> Piezo["TR1-TR4 piezos"]
+    Pico --> Packed["MUX10A1 frames<br/>10-bit packed ADC"]
+    Packed --> Flask
+    Flask --> UI
 ```
 
-## Default Settings
+## Default Live Settings
 
-The live UI currently defaults to:
+| Setting | Default | Notes |
+| --- | ---: | --- |
+| DAC gain | `150` | Sent as `write dac 150` before streaming |
+| pon ns | `167` | Pulse timing |
+| poff ns | `167` | Pulse timing |
+| damp ns | `10000` | Existing pic0rick damping parameter |
+| samples/path | `2000` | Fixed in the UI |
+| MUX settle us | `10` | Delay after selecting the TX/RX path |
+| TX short delay us | `3` | PIO-timed delay before latching the short mask |
 
-- DAC gain: `150`
-- pon ns: `167`
-- poff ns: `167`
-- damp ns: `10000`
-- samples/path: `2000`
-- MUX settle us: `10`
-- TX short delay us: `3`
+At 60 MHz sampling:
 
-The page sends 12 paths per scan. Each path has 2000 ADC samples, and the firmware sends the samples as packed 10-bit binary data.
+```text
+2000 samples / 60 MHz = 33.33 us per path
+```
 
-## Host-To-Pico Command Flow
+## Host-To-Pico Command
 
-The browser does not directly control the Pico. The flow is:
+The browser does not talk to the Pico directly. The server sends text commands over USB serial.
 
-1. The browser UI is defined inside `serve_array_tx_short.py`.
+Current scan command:
 
-   The visible controls are in the HTML section of that file. The important defaults are stored in `SETTINGS_DEFAULTS`:
+```text
+four common <samples> <pon_ns> <poff_ns> <damp_ns> <mux_settle_us> <rx_blank_us> <tx_short_delay_us> <tx_short_hold_us>
+```
+
+With the default UI settings, it is:
+
+```text
+four common 2000 167 167 10000 10 0 3 50
+```
+
+The DAC is sent separately first:
+
+```text
+write dac 150
+```
+
+## Per-Path Timing
+
+For each path, such as `TX1 -> RX2`, the firmware does this:
+
+```mermaid
+sequenceDiagram
+    participant Host
+    participant Pico
+    participant MUX as MAX14866
+    participant PIO
+    participant ADC
+
+    Host->>Pico: four common ...
+    Pico->>MUX: write normal mask<br/>TX + RX
+    Pico->>Pico: wait MUX settle us
+    Pico->>MUX: shift short mask<br/>TX + RX + TR5
+    Note over MUX: LE stays high, so output switches do not change yet
+    Pico->>PIO: arm timed LE latch
+    Pico->>ADC: start DMA capture
+    PIO->>PIO: start ADC + pulse + LE state machines together
+    PIO->>MUX: pulse LE low after TX short delay
+    MUX->>MUX: TR5 short-to-GND becomes active
+    Pico->>MUX: release to RX-only
+    Pico->>Host: send MUX10A1 packed frame
+```
+
+The important idea is that the firmware **preloads** the short mask before the high-voltage pulse, then uses a PIO-timed LE pulse to apply it. This avoids clocking SPI data into the MAX14866 during the transmit burst.
+
+## MAX14866 Masks
+
+Inside the firmware, channels are zero-based:
+
+| User label | Firmware index |
+| --- | ---: |
+| Channel 1 | `0` |
+| Channel 2 | `1` |
+| Channel 3 | `2` |
+| Channel 4 | `3` |
+
+Switch-bit helpers are in `firmware/adc/adc.c`:
+
+```c
+static uint16_t mux_rx_bit(uint8_t channel)
+{
+    return (uint16_t)(1u << (channel * 2u));
+}
+
+static uint16_t mux_tx_bit(uint8_t channel)
+{
+    return (uint16_t)(1u << (channel * 2u + 1u));
+}
+
+static uint16_t mux_tx_short_bit(uint8_t channel)
+{
+    return mux_tx_bit((uint8_t)(channel + 4u));
+}
+```
+
+Example for `TX1 -> RX2`:
+
+| Mask | Meaning | Value |
+| --- | --- | ---: |
+| `mux_mask` | `TX1 + RX2` | `0x0006` |
+| `short_mask` | `TX1 + RX2 + TR5` | `0x0206` |
+| `release_mask` | `RX2 only` | `0x0004` |
+
+## Binary Frame Format
+
+Frames are parsed in `host/run_array_test.py`.
+
+```python
+MAGIC = b"MUX10A1"
+HEADER = struct.Struct("<BBBHIH")
+```
+
+After `MUX10A1`, each frame contains:
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `mode` | `uint8` | Scan mode |
+| `tx` | `uint8` | 1-based TX channel |
+| `rx_mask` | `uint8` | Enabled RX channel mask |
+| `count` | `uint16` | Samples in this path |
+| `sequence` | `uint32` | Frame sequence counter |
+| `mux_mask` | `uint16` | MAX14866 mask used for this frame |
+
+Samples are sent as packed 10-bit ADC values:
+
+```text
+payload_size = ceil(sample_count * 10 / 8)
+```
+
+For the current 12-path scan:
+
+```text
+2000 samples/path * 10 bits = 2500 bytes/path
+2500 bytes/path * 12 paths = 30000 bytes/scan
+```
+
+## File Map
+
+| File | Role |
+| --- | --- |
+| `serve_array_tx_short.py` | Live Flask interface, serial worker, browser UI |
+| `host/run_array_test.py` | Serial frame reader and 10-bit unpacking helper |
+| `firmware/main.c` | Text command parser and command dispatch |
+| `firmware/adc/adc.c` | 4-channel path sequence, masks, DMA, packed frame writer |
+| `firmware/adc/adc.pio` | ADC sampler, pulse timing, PIO-timed LE latch |
+| `firmware/max/max14866.c` | MAX14866 shift/latch helper |
+| `firmware/max/max14866.pio` | PIO-based MAX14866 serial output |
+
+<details>
+<summary><b>Code-level command flow</b></summary>
+
+1. The live UI defaults are stored in `serve_array_tx_short.py`:
 
    ```python
    SETTINGS_DEFAULTS = {
@@ -100,231 +252,41 @@ The browser does not directly control the Pico. The flow is:
    POST /stream/start
    ```
 
-   This endpoint is implemented in `serve_array_tx_short.py`.
-
-3. `serve_array_tx_short.py` starts `hardware_worker(settings)`.
-
-   This worker opens the Pico USB serial port:
-
-   ```python
-   SERIAL_BAUD = 921600
-   serial.Serial(port, SERIAL_BAUD, timeout=2, write_timeout=2)
-   ```
-
-4. Before starting the stream, the server sends the DAC command:
+3. `serve_array_tx_short.py` starts `hardware_worker(settings)`, opens the Pico serial port, and sends:
 
    ```text
    write dac <dac_gain>
+   four common <samples> <pon_ns> <poff_ns> <damp_ns> <mux_settle_us> <rx_blank_us> <tx_short_delay_us> <tx_short_hold_us>
    ```
 
-   Example:
-
-   ```text
-   write dac 150
-   ```
-
-5. Then the server sends one scan command:
-
-```text
-four common <samples> <pon_ns> <poff_ns> <damp_ns> <mux_settle_us> <rx_blank_us> <tx_short_delay_us> <tx_short_hold_us>
-```
-
-With the current defaults, this is approximately:
-
-```text
-four common 2000 167 167 10000 10 0 3 50
-```
-
-6. The Pico receives this text command in `firmware/main.c`.
-
-   `process_command()` splits the first two words into a command key. For this release:
+4. `firmware/main.c` dispatches the command:
 
    ```c
    {"four common", adc_four_common_short_stream},
    ```
 
-7. `adc_four_common_short_stream()` is implemented in `firmware/adc/adc.c`.
-
-   It defines the 12 directed paths:
-
-   ```c
-   static const uint8_t tx_channels[12] = {0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3};
-   static const uint8_t rx_channels[12] = {1, 2, 3, 0, 2, 3, 0, 1, 3, 0, 1, 2};
-   ```
-
-   These are zero-based inside firmware:
-
-   - `0` means channel 1.
-   - `1` means channel 2.
-   - `2` means channel 3.
-   - `3` means channel 4.
-
-8. `adc_four_common_short_stream()` calls:
+5. `adc_four_common_short_stream()` defines the 12 directed paths and calls:
 
    ```c
    adc_mux_pairwise_short_stream(data, tx_channels, rx_channels, 12, true);
    ```
 
-   The final `true` enables the common `TR5` short-to-GND path after each pulse.
+6. The final `true` enables the common `TR5` short-to-GND behavior.
 
-9. The Pico continuously sends one binary frame per path.
+</details>
 
-   `serve_array_tx_short.py` reads those frames using `read_frame()` from `host/run_array_test.py`.
+<details>
+<summary><b>PIO timing details</b></summary>
 
-10. The server waits until it has all 12 frames, then publishes one complete scan to the browser through:
+The synchronized acquisition is handled by `run_adc_acquisition_tx_short()` in `firmware/adc/adc.c`.
 
-   ```text
-   GET /stream/latest.bin
-   ```
-
-11. The browser unpacks the 10-bit samples and draws the 12 plots.
-
-## Per-Path Firmware Sequence
-
-For each directed path, for example `TX1 -> RX2`, the firmware does this:
-
-The core function is:
-
-```c
-adc_mux_pairwise_short_stream()
-```
-
-in:
-
-```text
-firmware/adc/adc.c
-```
-
-### 1. Convert TX/RX channel into MAX14866 switch bits
-
-The firmware uses these helper functions:
-
-```c
-static uint16_t mux_rx_bit(uint8_t channel)
-{
-    return (uint16_t)(1u << (channel * 2u));
-}
-
-static uint16_t mux_tx_bit(uint8_t channel)
-{
-    return (uint16_t)(1u << (channel * 2u + 1u));
-}
-
-static uint16_t mux_tx_short_bit(uint8_t channel)
-{
-    return mux_tx_bit((uint8_t)(channel + 4u));
-}
-```
-
-For `TX1 -> RX2`:
-
-- firmware TX channel is `0`
-- firmware RX channel is `1`
-- `TX1` switch bit is `0x0002`
-- `RX2` switch bit is `0x0004`
-- common `TR5` short bit is `0x0200`
-
-So the masks are:
-
-```text
-mux_mask     = TX1 + RX2       = 0x0006
-short_mask   = TX1 + RX2 + TR5 = 0x0206
-release_mask = RX2 only        = 0x0004
-```
-
-### 2. Select the normal TX/RX path
-
-   Example:
-
-   ```text
-   TX1 + RX2
-   ```
-
-   The firmware writes this mask using `max14866_write(mux_mask)`.
-
-Code:
-
-```c
-max14866_write(mux_mask);
-sleep_us(settle_us);
-```
-
-`max14866_write()` is in `firmware/max/max14866.c`:
-
-```c
-void max14866_write(uint16_t data)
-{
-    max14866_shift(data);
-    max14866_latch();
-}
-```
-
-This means:
-
-- shift 16 bits into the MAX14866 shift register
-- pulse LE low to copy the shift register into the output latch
-
-### 3. Wait for MUX settling
-
-   This is controlled by `MUX settle us`.
-
-The current default is:
-
-```text
-MUX settle us = 10
-```
-
-The firmware also enforces a minimum:
-
-```c
-#define ARRAY_MIN_SETTLE_US 5
-```
-
-### 4. Preload the TX-short state before the pulse
-
-   This next state keeps the RX path connected and also enables the common TX short path through `TR5`.
-
-   Example:
-
-   ```text
-   TX1 + RX2 + TR5 short-to-GND
-   ```
-
-   This uses `max14866_shift(short_mask)`, which clocks the data in while LE is still high.
-
-Code:
-
-```c
-max14866_shift(short_mask);
-```
-
-Important detail:
-
-- `max14866_shift()` only clocks the new bits into the shift register.
-- It does not latch the new state yet.
-- LE remains high, so the active switches are still the normal TX/RX path.
-
-This is done before the transmit pulse so the firmware does not need to send SPI clock data during the high-voltage pulse.
-
-### 5. Start ADC capture, pulse generation, and timed LE
-
-   The ADC and pulse timing are generated by PIO state machines in `firmware/adc/adc.pio`.
-
-The C function is:
-
-```c
-run_adc_acquisition_tx_short()
-```
-
-in `firmware/adc/adc.c`.
-
-This function:
+It:
 
 1. clears the ADC PIO FIFO
-2. sets up DMA for `sample_count`
-3. loads PIO FIFO values for sample count, pulse width, pulse off time, and damp time
-4. arms the timed LE latch PIO
-5. starts all related PIO state machines together
+2. configures DMA for `sample_count`
+3. loads sample count, pulse width, pulse off time, and damp time into PIO FIFOs
+4. arms the timed LE latch PIO with `arm_le_latch_pio(short_delay_us)`
+5. starts ADC, pulse, and LE PIO state machines together
 
 Relevant code:
 
@@ -335,247 +297,22 @@ arm_le_latch_pio(short_delay_us);
 start_adc_pulse_le_sms_sync();
 ```
 
-The synchronized start is important:
+The synchronized start is:
 
 ```c
 pio_enable_sm_mask_in_sync(pio_adc, adc_pulse_le_sm_mask());
 ```
 
-That starts:
-
-- ADC sampling state machine
-- pulse state machines
-- LE latch state machine
-
-at the same time.
-
-### 6. PIO generates the ADC sampling and pulse waveforms
-
-The PIO programs are in:
-
-```text
-firmware/adc/adc.pio
-```
-
-Relevant PIO programs:
-
-- `.program adc`: samples the ADC pins
-- `.program pulse1`: generates the first part of the pulse
-- `.program pulse2`: generates the second/damping-related pulse timing
-- `.program le_latch`: generates the timed LE pulse for the MAX14866
-
-The ADC sample count comes from:
-
-```c
-pio_sm_put_blocking(pio_adc, sm, sample_count);
-```
-
-The pulse timing values are converted from ns to PIO cycles in `adc_mux_pairwise_short_stream()`:
-
-```c
-pon_ns / 8
-poff_ns / 8
-damp_ns / 8
-```
-
-This is because the pulse timing state machine runs with 8 ns cycle units.
-
-### 7. Pulse LE after `TX short delay us`
-
-   This is important: the LE timing is not done by slow Python or normal CPU timing. The firmware arms a dedicated PIO state machine with:
-
-   ```c
-   arm_le_latch_pio(short_delay_us);
-   ```
-
-   Then the ADC, pulse, and LE state machines are started together.
-
-The PIO code is:
-
-```pio
-.program le_latch
-.side_set 1
-
-pull block side 1
-mov x, osr side 1
-
-le_delay:
-    jmp x-- le_delay side 1
-
-nop side 0 [15]
-...
-nop side 1
-```
-
-In MAX14866 logic:
-
-- LE high: latch is frozen
-- LE low: latch updates from the shift register
-
-So the firmware shifts the `short_mask` early, then lets PIO pulse LE low at the desired time.
-
-### 8. TR5 short-to-GND becomes active
-
-   This enables the common `TR5` short-to-GND path after the pulse.
-
-For `TX1 -> RX2`, this changes MAX14866 from:
-
-```text
-TX1 + RX2
-```
-
-to:
-
-```text
-TX1 + RX2 + TR5 short-to-GND
-```
-
-The goal is to bleed the TX-side residual charge/ringdown through the common short path.
-
-### 9. Release TX and leave RX connected
-
-   The release state is:
-
-   ```text
-   RX only
-   ```
-
-The firmware does this after:
-
-```c
-release_us = short_delay_us + short_hold_us + 2u;
-```
-
-Then:
-
-```c
-restore_le_gpio();
-max14866_shift(release_mask);
-max14866_latch();
-```
-
-For `TX1 -> RX2`, `release_mask = 0x0004`, so only RX2 remains connected.
-
-### 10. Finish collecting ADC samples
-
-The DMA waits until the ADC sample buffer is full:
-
-```c
-dma_wait_timeout(dma_chan, DMA_TIMEOUT_MS)
-```
-
-The current UI requests `2000` samples/path. At 60 MHz sample rate:
-
-```text
-2000 samples / 60 MHz = 33.33 us
-```
-
-### 11. Pack the 10-bit ADC samples and send one frame
-
-The frame is written by:
-
-```c
-write_array_frame()
-```
-
-in `firmware/adc/adc.c`.
-
-Each frame contains:
-
-- magic bytes: `MUX10A1`
-- mode
-- TX channel
-- RX mask
-- sample count
-- sequence number
-- MUX mask
-- packed 10-bit ADC samples
-
-The firmware only calls `stdio_flush()` after the last path in a 12-path scan:
-
-```c
-write_array_frame(..., path + 1u == path_count);
-```
-
-This reduces USB overhead compared with flushing after every path.
-
-## Binary Frame Format
-
-The Python reader is in:
-
-```text
-host/run_array_test.py
-```
-
-It expects:
-
-```python
-MAGIC = b"MUX10A1"
-HEADER = struct.Struct("<BBBHIH")
-```
-
-After the magic bytes, the header is:
-
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `mode` | `uint8` | scan mode, pairwise mode is `0` |
-| `tx` | `uint8` | 1-based TX channel sent to the host |
-| `rx_mask` | `uint8` | enabled RX channel mask |
-| `count` | `uint16` | samples in this path |
-| `sequence` | `uint32` | frame sequence counter |
-| `mux_mask` | `uint16` | MAX14866 mask used for the frame |
-
-The payload size is:
-
-```python
-payload_size = math.ceil(count * 10 / 8)
-```
-
-For `2000` samples:
-
-```text
-2000 * 10 / 8 = 2500 bytes/path
-2500 bytes/path * 12 paths = 30000 bytes/scan
-```
-
-This is why the full 12-path live scan is mainly limited by USB serial throughput.
-
-## Browser Rendering Flow
-
-The browser receives one full scan from:
-
-```text
-GET /stream/latest.bin
-```
-
-The server response starts with:
-
-```python
-struct.pack("<IH", latest_cycle_id + 1, count)
-```
-
-Then it appends 12 packed traces.
-
-In the browser JavaScript:
-
-```javascript
-const count = view.getUint16(4, true);
-const packedBytes = Math.ceil(count * 10 / 8);
-const samples = unpack10bit(packed, count);
-draw(canvas, samples);
-```
-
-So the browser does not receive JSON waveform arrays. It receives compact binary data and unpacks it locally before drawing.
-
-## Important Code Locations
-
-- Serial command selection: `serve_array_tx_short.py`
-- Command dispatch: `firmware/main.c`
-- Main 4-channel loop: `firmware/adc/adc.c`, `adc_four_common_short_stream()`
-- Path switching and TX short logic: `firmware/adc/adc.c`, `adc_mux_pairwise_short_stream()`
-- Timed LE pulse setup: `firmware/adc/adc.c`, `arm_le_latch_pio()`
-- ADC / pulse / LE PIO programs: `firmware/adc/adc.pio`
-- MAX14866 bit shifting and latch helper: `firmware/max/max14866.c`
+PIO programs in `firmware/adc/adc.pio`:
+
+| Program | Function |
+| --- | --- |
+| `.program adc` | Samples the ADC pins |
+| `.program pulse1` | Generates pulse timing |
+| `.program pulse2` | Generates pulse/damping timing |
+| `.program le_latch` | Pulses MAX14866 LE at the requested delay |
+
+</details>
 
 ## Build Firmware
 
@@ -585,8 +322,14 @@ From the `firmware` folder:
 ./build.sh
 ```
 
-This builds only the RP2040 firmware and updates:
+This builds the RP2040 firmware and updates:
 
 ```text
 tx_short_extra_gnd_rp2040.uf2
 ```
+
+## Notes
+
+- This release is intentionally RP2040-only.
+- The UI fixes the sample count because changing it from the browser was not useful for the current test workflow.
+- The scan is USB-throughput limited: the firmware sends 12 packed traces per complete scan.
