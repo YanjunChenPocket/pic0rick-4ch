@@ -2,7 +2,7 @@
 
 # pic0rick-4ch
 
-**RP2040 4-channel MAX14866 ultrasound MUX scanner with timed TX short-to-GND**
+**Project-specific 4-channel MAX14866 scan layer for pic0rick**
 
 <p>
   <img alt="Board" src="https://img.shields.io/badge/Board-RP2040-7c3aed">
@@ -14,8 +14,13 @@
 
 </div>
 
-This is a clean release folder for the current **pic0rick 4-channel MUX experiment**.
-It targets the original Raspberry Pi Pico / **RP2040** board.
+This repository is an experimental extension built on top of the original
+[pic0rick](https://un0rick.cc/pic0rick) / [kelu124/pic0rick](https://github.com/kelu124/pic0rick)
+platform. It only contains the project-specific 4-channel MUX scan code,
+RP2040 firmware, and live visualization used for this experiment.
+
+For the base pic0rick hardware, ADC front-end, pulser architecture, and original
+project documentation, please refer to the upstream project.
 
 Ready-to-flash firmware:
 
@@ -39,7 +44,22 @@ pip install -r requirements.txt
 python serve_array_tx_short.py
 ```
 
-## What It Runs
+## What Is Specific To This Repository
+
+This release adds a 4-channel directed-pair scan on top of pic0rick. The
+experiment uses four piezo channels as active TX/RX nodes, scans all non-self
+TX/RX combinations, and uses an extra MAX14866 channel as a common
+short-to-GND path after each transmit pulse.
+
+The main project-specific parts are:
+
+- 12 directed TX/RX paths across `TR1-TR4`.
+- A common `TR5` TX short-to-GND path after each pulse.
+- Preloaded MAX14866 short masks, applied by a timed LE pulse from RP2040 PIO.
+- Fixed 2000-sample traces per path, sent as packed 10-bit binary frames.
+- A compact Flask browser UI for viewing all 12 paths in real time.
+
+## Scan Pattern
 
 The firmware scans all directed TX/RX pairs across four piezo channels:
 
@@ -61,20 +81,6 @@ Current hardware mapping:
 | `TR6-TR8` | Unused in this release |
 
 The purpose of the `TR5` short is to reduce TX ringdown/feedthrough after the pulse while keeping the scan sequence fast.
-
-## System Flow
-
-```mermaid
-flowchart LR
-    UI["Browser UI<br/>serve_array_tx_short.py"] --> Flask["Flask server"]
-    Flask --> Serial["USB serial command<br/>921600 baud"]
-    Serial --> Pico["RP2040 firmware"]
-    Pico --> MUX["MAX14866 MUX"]
-    MUX --> Piezo["TR1-TR4 piezos"]
-    Pico --> Packed["MUX10A1 frames<br/>10-bit packed ADC"]
-    Packed --> Flask
-    Flask --> UI
-```
 
 ## Default Live Settings
 
@@ -116,33 +122,19 @@ The DAC is sent separately first:
 write dac 150
 ```
 
-## Per-Path Timing
+## Timing Idea
 
-For each path, such as `TX1 -> RX2`, the firmware does this:
+For each path, the firmware first selects the normal TX/RX route and waits for
+the MUX to settle. Before the high-voltage pulse, it shifts the next MAX14866
+state into the shift register while LE remains high, so the active switch state
+does not change yet. After the pulse starts, an RP2040 PIO state machine pulses
+LE at the requested `TX short delay us`, which applies the preloaded
+`TX + RX + TR5` short mask with deterministic timing.
 
-```mermaid
-sequenceDiagram
-    participant Host
-    participant Pico
-    participant MUX as MAX14866
-    participant PIO
-    participant ADC
-
-    Host->>Pico: four common ...
-    Pico->>MUX: write normal mask<br/>TX + RX
-    Pico->>Pico: wait MUX settle us
-    Pico->>MUX: shift short mask<br/>TX + RX + TR5
-    Note over MUX: LE stays high, so output switches do not change yet
-    Pico->>PIO: arm timed LE latch
-    Pico->>ADC: start DMA capture
-    PIO->>PIO: start ADC + pulse + LE state machines together
-    PIO->>MUX: pulse LE low after TX short delay
-    MUX->>MUX: TR5 short-to-GND becomes active
-    Pico->>MUX: release to RX-only
-    Pico->>Host: send MUX10A1 packed frame
-```
-
-The important idea is that the firmware **preloads** the short mask before the high-voltage pulse, then uses a PIO-timed LE pulse to apply it. This avoids clocking SPI data into the MAX14866 during the transmit burst.
+This approach avoids clocking SPI data into the MAX14866 during the transmit
+burst. That matters because the MAX14866 can inhibit SPI programming during
+large transmit events; using LE to apply a preloaded state is more repeatable
+than trying to write a new switch word immediately after the pulse.
 
 ## MAX14866 Masks
 
@@ -328,8 +320,10 @@ This builds the RP2040 firmware and updates:
 tx_short_extra_gnd_rp2040.uf2
 ```
 
-## Notes
+## Attribution And License Notes
 
 - This release is intentionally RP2040-only.
 - The UI fixes the sample count because changing it from the browser was not useful for the current test workflow.
 - The scan is USB-throughput limited: the firmware sends 12 packed traces per complete scan.
+- This work is based on the upstream [pic0rick](https://un0rick.cc/pic0rick) project and its GitHub repository, [kelu124/pic0rick](https://github.com/kelu124/pic0rick).
+- Please refer to the upstream project for the original hardware, firmware, documentation, and license terms. This repository is intended to preserve attribution while documenting only the project-specific 4-channel TX-short scan changes.
