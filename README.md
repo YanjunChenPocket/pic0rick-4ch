@@ -118,17 +118,23 @@ write dac 150
 
 ## Timing Idea
 
-For each path, the firmware first selects the normal TX/RX route and waits for
-the MUX to settle. Before the high-voltage pulse, it shifts the next MAX14866
-state into the shift register while LE remains high, so the active switch state
-does not change yet. After the pulse starts, an RP2040 PIO state machine pulses
-LE at the requested `TX short delay us`, which applies the preloaded
-`TX + RX + TR5` short mask with deterministic timing.
+For each path, the timing is arranged so the MAX14866 switch state can change
+without clocking new SPI data during the high-voltage transmit burst:
 
-This approach avoids clocking SPI data into the MAX14866 during the transmit
-burst. That matters because the MAX14866 can inhibit SPI programming during
-large transmit events; using LE to apply a preloaded state is more repeatable
-than trying to write a new switch word immediately after the pulse.
+1. Select the normal TX/RX route, such as `TX1 + RX2`.
+2. Wait for `MUX settle us` so the selected path can settle before firing.
+3. Shift the next MAX14866 state into the shift register: `TX + RX + TR5`.
+4. Keep LE high, so the shifted state is prepared but not active yet.
+5. Start ADC sampling, the transmit pulse, and the timed LE state machine together.
+6. After `TX short delay us`, the RP2040 PIO pulses LE low.
+7. The preloaded `TX + RX + TR5` state becomes active, shorting the TX side to GND through `TR5`.
+8. The trace continues to be sampled until the full ADC window is complete.
+9. The firmware then releases the TX side and moves to the next TX/RX path.
+
+This preload-then-latch sequence is important because the MAX14866 can inhibit
+SPI programming during large transmit events. Using LE to apply a prepared
+state is more repeatable than trying to write a new switch word immediately
+after the pulse.
 
 ## MAX14866 Masks
 
