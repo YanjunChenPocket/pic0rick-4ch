@@ -4,13 +4,7 @@
 
 **Project-specific 4-channel MAX14866 scan layer for pic0rick**
 
-<p>
-  <img alt="Board" src="https://img.shields.io/badge/Board-RP2040-7c3aed">
-  <img alt="MUX" src="https://img.shields.io/badge/MUX-MAX14866-0f766e">
-  <img alt="Paths" src="https://img.shields.io/badge/Scan-12%20directed%20paths-2563eb">
-  <img alt="Data" src="https://img.shields.io/badge/Data-10--bit%20packed-f59e0b">
-  <img alt="UI" src="https://img.shields.io/badge/UI-Flask%20live%20viewer-0891b2">
-</p>
+`Board: RP2040` · `MUX: MAX14866` · `Scan: 12 directed paths` · `Data: 10-bit packed` · `UI: Flask live viewer`
 
 </div>
 
